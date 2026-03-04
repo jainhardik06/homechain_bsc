@@ -1,0 +1,9 @@
+{
+  "/dashboard/page": "app/dashboard/page.js",
+  "/rooms/page": "app/rooms/page.js",
+  "/access-management/page": "app/access-management/page.js",
+  "/analytics/page": "app/analytics/page.js",
+  "/admin/page": "app/admin/page.js",
+  "/settings/page": "app/settings/page.js",
+  "/page": "app/page.js"
+}
