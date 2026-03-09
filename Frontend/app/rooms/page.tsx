@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Zap, ShieldAlert, Filter } from 'lucide-react'
+import { Plus, Home, ShieldAlert } from 'lucide-react'
 import Navigation from '@/components/Navigation'
 import { Card, CardHeader, CardBody, CardFooter, Badge, Button, Input } from '@/components/UI'
 
@@ -31,53 +31,40 @@ export default function RoomsPage() {
     description: '',
   })
 
+  // Load rooms from API
   useEffect(() => {
-    const fetchRooms = async () => {
+    const loadRooms = async () => {
       try {
+        setLoading(true)
+        setError('')
+
         // TODO: Replace with actual API endpoint
         // const response = await fetch('/api/rooms')
         // const data = await response.json()
+        // setRooms(data)
 
-        setTimeout(() => {
-          setRooms([
-            {
-              id: 1,
-              name: 'Living Room',
-              description: 'Main living and entertainment space',
-              isOnline: true,
-              deviceCount: 5,
-            },
-            {
-              id: 2,
-              name: 'Kitchen',
-              description: 'Kitchen and dining area',
-              isOnline: true,
-              deviceCount: 3,
-            },
-            {
-              id: 3,
-              name: 'Bedroom',
-              description: 'Master bedroom',
-              isOnline: false,
-              deviceCount: 2,
-            },
-          ])
-          setLoading(false)
-        }, 500)
+        // Initialize with empty state - no mock data
+        setRooms([])
+        setLoading(false)
       } catch (err) {
-        setError('Failed to fetch rooms')
+        console.error('Failed to load rooms:', err)
+        setError('Failed to load rooms. Please try again.')
         setLoading(false)
       }
     }
 
-    fetchRooms()
+    loadRooms()
   }, [])
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  // Handle input changes
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
+  // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -99,7 +86,6 @@ export default function RoomsPage() {
           )
         )
         setSuccess('Room updated successfully')
-        setEditingId(null)
       } else {
         // TODO: Call API to create room
         const newRoom: Room = {
@@ -115,176 +101,250 @@ export default function RoomsPage() {
 
       setFormData({ name: '', description: '' })
       setShowForm(false)
-      setTimeout(() => setSuccess(''), 5000)
+      setEditingId(null)
+      setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
       setError('Failed to save room')
     }
   }
 
+  // Handle edit
   const handleEdit = (room: Room) => {
     setEditingId(room.id)
     setFormData({ name: room.name, description: room.description })
     setShowForm(true)
   }
 
+  // Handle delete
   const handleDelete = async (roomId: number) => {
-    if (!confirm('Are you sure you want to delete this room?')) return
+    if (!confirm('Are you sure you want to delete this room? This action cannot be undone.')) {
+      return
+    }
 
     try {
       // TODO: Call API to delete room
-      setTimeout(() => {
-        setRooms((prev) => prev.filter((r) => r.id !== roomId))
-        setSuccess('Room deleted successfully')
-        setTimeout(() => setSuccess(''), 5000)
-      }, 500)
+      setRooms((prev) => prev.filter((r) => r.id !== roomId))
+      setSuccess('Room deleted successfully')
+      setTimeout(() => setSuccess(''), 3000)
     } catch (err) {
       setError('Failed to delete room')
     }
   }
 
+  // Cancel form
+  const handleCancel = () => {
+    setShowForm(false)
+    setEditingId(null)
+    setFormData({ name: '', description: '' })
+  }
+
+  // Loading state
   if (loading) {
     return (
-      <div className="flex min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
         <Navigation />
-        <div className="flex-1 md:ml-64 pt-16 md:pt-0 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="container mx-auto px-4 py-8 flex items-center justify-center min-h-[calc(100vh-80px)]">
+          <div className="animate-pulse space-y-4">
+            <div className="h-10 bg-slate-200 rounded w-1/4"></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-40 bg-slate-200 rounded"></div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <Navigation />
+      <div className="container mx-auto px-4 py-8 max-w-6xl">
+        <div className="space-y-8">
+          {/* Error Alert */}
+          {error && (
+            <Card className="border-l-4 border-red-500 bg-red-50">
+              <CardBody className="p-4 flex items-start gap-3">
+                <ShieldAlert className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-semibold text-red-900">Error</p>
+                  <p className="text-sm text-red-800">{error}</p>
+                </div>
+                <button
+                  onClick={() => setError('')}
+                  className="text-red-600 hover:text-red-700 text-lg flex-shrink-0"
+                >
+                  ×
+                </button>
+              </CardBody>
+            </Card>
+          )}
 
-      <div className="flex-1 md:ml-64 pt-16 md:pt-0">
-        <div className="p-4 md:p-8 max-w-6xl mx-auto">
+          {/* Success Alert */}
+          {success && (
+            <Card className="border-l-4 border-green-500 bg-green-50">
+              <CardBody className="p-4 flex items-start gap-3">
+                <div className="w-5 h-5 rounded-full bg-green-600 flex-shrink-0 mt-0.5"></div>
+                <div className="flex-1">
+                  <p className="font-semibold text-green-900">{success}</p>
+                </div>
+                <button
+                  onClick={() => setSuccess('')}
+                  className="text-green-600 hover:text-green-700 text-lg flex-shrink-0"
+                >
+                  ×
+                </button>
+              </CardBody>
+            </Card>
+          )}
+
           {/* Header */}
-          <div className="mb-8 flex items-start justify-between">
+          <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-slate-900 mb-2 flex items-center gap-3">
-                <Zap className="text-blue-600 w-8 h-8" />
-                Room Management
-              </h1>
+              <h1 className="text-4xl font-bold text-slate-900 mb-2">Room Management</h1>
               <p className="text-slate-600">Organize and configure your home rooms</p>
             </div>
             {!showForm && (
-              <Button onClick={() => { setShowForm(true); setEditingId(null); setFormData({ name: '', description: '' }); }}>
-                <Plus className="w-4 h-4 mr-2" />
+              <Button
+                onClick={() => {
+                  setShowForm(true)
+                  setEditingId(null)
+                  setFormData({ name: '', description: '' })
+                }}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
+              >
+                <Plus className="w-4 h-4" />
                 New Room
               </Button>
             )}
           </div>
 
-          {/* Alerts */}
-          {error && (
-            <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-              <p className="text-red-700">{error}</p>
-            </div>
-          )}
-
-          {success && (
-            <div className="mb-6 bg-emerald-50 border border-emerald-200 rounded-lg p-4">
-              <p className="text-emerald-700">{success}</p>
-            </div>
-          )}
-
           {/* Create/Edit Form */}
           {showForm && (
-            <Card className="mb-8">
+            <Card>
               <CardHeader>
                 <h2 className="text-lg font-semibold text-slate-900">
                   {editingId ? 'Edit Room' : 'Create New Room'}
                 </h2>
               </CardHeader>
-              <CardBody>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <Input
-                    label="Room Name"
-                    placeholder="e.g. Living Room, Bedroom"
-                    name="name"
-                    value={formData.name}
+              <CardBody className="space-y-6">
+                <Input
+                  label="Room Name"
+                  placeholder="e.g. Living Room, Bedroom, Kitchen"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleInputChange}
+                  required
+                />
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Description
+                  </label>
+                  <textarea
+                    name="description"
+                    value={formData.description}
                     onChange={handleInputChange}
+                    placeholder="Describe the purpose of this room"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    rows={3}
                   />
-
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
-                      Description
-                    </label>
-                    <textarea
-                      name="description"
-                      value={formData.description}
-                      onChange={handleInputChange}
-                      placeholder="Describe the purpose of this room"
-                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      rows={3}
-                    />
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button type="submit">
-                      {editingId ? 'Update Room' : 'Create Room'}
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={() => {
-                        setShowForm(false)
-                        setEditingId(null)
-                        setFormData({ name: '', description: '' })
-                      }}
-                      className="bg-slate-200 text-slate-900 hover:bg-slate-300"
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
+                  <p className="text-xs text-slate-500 mt-1">Optional description</p>
+                </div>
               </CardBody>
+              <CardFooter className="flex gap-2 justify-end border-t border-slate-200 pt-4">
+                <Button
+                  onClick={handleCancel}
+                  className="bg-slate-200 text-slate-900 hover:bg-slate-300"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSubmit}
+                  className="bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  {editingId ? 'Update Room' : 'Create Room'}
+                </Button>
+              </CardFooter>
             </Card>
           )}
 
-          {/* Rooms Grid */}
+          {/* Rooms List */}
           <div>
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Your Rooms</h2>
+            <h2 className="text-xl font-semibold text-slate-900 mb-4">Your Rooms</h2>
 
             {rooms.length === 0 ? (
+              // Empty state
               <Card>
-                <CardBody className="text-center py-12">
-                  <Zap className="mx-auto text-slate-300 mb-3 w-10 h-10" />
-                  <p className="text-slate-600 mb-4">No rooms created yet</p>
-                  <Button onClick={() => setShowForm(true)}>Create Your First Room</Button>
+                <CardBody className="p-12 text-center">
+                  <Home className="mx-auto text-slate-300 mb-4 w-12 h-12" />
+                  <h3 className="text-xl font-semibold text-slate-900 mb-2">
+                    No rooms yet
+                  </h3>
+                  <p className="text-slate-600 mb-6">
+                    Create your first room to start organizing your smart home devices
+                  </p>
+                  <Button
+                    onClick={() => {
+                      setShowForm(true)
+                      setEditingId(null)
+                      setFormData({ name: '', description: '' })
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create First Room
+                  </Button>
                 </CardBody>
               </Card>
             ) : (
+              // Rooms grid
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {rooms.map((room) => (
-                  <Card key={room.id} className="overflow-hidden">
-                    <CardBody className="p-6">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <h3 className="text-lg font-semibold text-slate-900">{room.name}</h3>
-                          <p className="text-sm text-slate-600 mt-1">{room.description}</p>
+                  <Card
+                    key={room.id}
+                    className="overflow-hidden hover:shadow-md transition-shadow"
+                  >
+                    <CardBody className="p-6 space-y-4">
+                      {/* Room Header */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg font-semibold text-slate-900 truncate">
+                            {room.name}
+                          </h3>
+                          {room.description && (
+                            <p className="text-sm text-slate-600 mt-1 line-clamp-2">
+                              {room.description}
+                            </p>
+                          )}
                         </div>
                         <Badge variant={room.isOnline ? 'success' : 'danger'}>
                           {room.isOnline ? 'Online' : 'Offline'}
                         </Badge>
                       </div>
 
-                      <div className="mb-4 py-4 border-t border-b border-slate-200">
+                      {/* Device Count */}
+                      <div className="py-3 border-t border-slate-200">
                         <p className="text-sm text-slate-600">
-                          <span className="font-semibold text-slate-900">{room.deviceCount}</span> devices connected
+                          <span className="font-semibold text-slate-900">
+                            {room.deviceCount}
+                          </span>{' '}
+                          device{room.deviceCount !== 1 ? 's' : ''} connected
                         </p>
                       </div>
 
-                      <div className="flex gap-2">
+                      {/* Actions */}
+                      <div className="flex gap-2 pt-2 border-t border-slate-200">
                         <button
                           onClick={() => handleEdit(room)}
-                          className="flex-1 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm font-medium"
+                          className="flex-1 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm font-medium hover:shadow-sm"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => handleDelete(room.id)}
-                          className="flex-1 px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium"
+                          className="flex-1 px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium hover:shadow-sm"
                         >
                           Delete
                         </button>
@@ -300,5 +360,3 @@ export default function RoomsPage() {
     </div>
   )
 }
-
-

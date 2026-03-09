@@ -1,9 +1,10 @@
 {
-  "/dashboard/page": "app/dashboard/page.js",
-  "/rooms/page": "app/rooms/page.js",
-  "/access-management/page": "app/access-management/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
   "/analytics/page": "app/analytics/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/access-management/page": "app/access-management/page.js",
+  "/page": "app/page.js",
   "/admin/page": "app/admin/page.js",
-  "/settings/page": "app/settings/page.js",
-  "/page": "app/page.js"
+  "/rooms/page": "app/rooms/page.js",
+  "/settings/page": "app/settings/page.js"
 }
