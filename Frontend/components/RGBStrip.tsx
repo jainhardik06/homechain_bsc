@@ -7,9 +7,9 @@ export default function RGBStrip() {
   const [selectedColor, setSelectedColor] = useState<string | null>(null)
 
   const colors = [
-    { name: 'Red', value: 1, bgColor: 'bg-red-500' },
+    { name: 'Red', value: 1, bgColor: 'bg-blue-500' },
     { name: 'Green', value: 2, bgColor: 'bg-green-500' },
-    { name: 'Blue', value: 3, bgColor: 'bg-blue-500' },
+    { name: 'Blue', value: 3, bgColor: 'bg-red-500' },
     { name: 'White', value: 4, bgColor: 'bg-white border border-gray-300' },
   ] as const
 

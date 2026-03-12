@@ -5,31 +5,35 @@ import { defineChain } from 'viem';
  * This is your Raspberry Pi's local Anvil/Hardhat instance
  * exposed via Ngrok tunnel for secure HTTPS access from anywhere
  * 
- * IMPORTANT: Update the RPC URL in the environment variables:
+ * PRIMARY RPC URL: https://overcivil-delsie-unvilified.ngrok-free.dev
+ * This is the ngrok tunnel bridge to your Anvil instance
+ * 
+ * ENVIRONMENT VARIABLES:
  * NEXT_PUBLIC_RPC_URL=https://overcivil-delsie-unvilified.ngrok-free.dev
+ * NEXT_PUBLIC_RPC_FALLBACK=http://localhost:8545 (for local dev only)
  */
 
-// Get RPC URL from environment, fallback to localhost for development
+// Get RPC URL from environment - ngrok tunnel is ALWAYS primary
 const getRpcUrl = (): string => {
-  if (typeof window === 'undefined') {
-    // Server-side
-    return process.env.NEXT_PUBLIC_RPC_URL || 'http://localhost:8545'
-  }
-  // Client-side - always use environment variable
-  return (
-    process.env.NEXT_PUBLIC_RPC_URL ||
-    'https://overcivil-delsie-unvilified.ngrok-free.dev'
-  )
+  // ALWAYS try ngrok first (production tunnel bridge)
+  const primaryUrl = 'https://overcivil-delsie-unvilified.ngrok-free.dev'
+  
+  // Environment override (if user provides custom tunnel)
+  const envUrl = typeof window !== 'undefined' 
+    ? process.env.NEXT_PUBLIC_RPC_URL
+    : process.env.NEXT_PUBLIC_RPC_URL
+  
+  return envUrl || primaryUrl
 }
 
 export const homeChain = defineChain({
   id: 31337,
-  name: 'HomeChain Private',
-  network: 'homechain',
+  name: 'Pi-BSC-Fork',
+  network: 'pi-bsc-fork',
   nativeCurrency: {
     decimals: 18,
-    name: 'Ether',
-    symbol: 'ETH',
+    name: 'Test Binance Coin',
+    symbol: 'tBNB',
   },
   rpcUrls: {
     default: {
@@ -49,17 +53,24 @@ export const homeChain = defineChain({
  * Network info for MetaMask setup
  * This is what gets added when users click "Connect Wallet"
  * 
- * IMPORTANT: The RPC URL here must match your Ngrok URL
+ * CRITICAL FIX: If MetaMask says "nativeCurrency.symbol does not match":
+ * 1. Delete the "HomeChain Blockchain" network from MetaMask (Settings > Networks > Delete)
+ * 2. Try adding it again
+ * This error happens when the network was already added with different settings.
+ * 
+ * CORS FIX: Ngrok blocks browser RPC calls due to CORS policy.
+ * Solution: Use MetaMask as the RPC provider instead of direct HTTP calls.
+ * See SystemStatus.tsx for workaround.
  */
 export const homeChainMetaMaskConfig = {
   chainId: '0x7a69', // 31337 in hex
-  chainName: 'Webasthetic Home Chain',
+  chainName: 'Pi-BSC-Fork',  // Matches existing MetaMask network
   nativeCurrency: {
-    name: 'Ether',
-    symbol: 'ETH',
+    name: 'Test Binance Coin',
+    symbol: 'tBNB',
     decimals: 18,
   },
-  // Use environment variable or fallback to Ngrok URL
+  // Ngrok tunnel bridge
   rpcUrls: [
     process.env.NEXT_PUBLIC_RPC_URL ||
       'https://overcivil-delsie-unvilified.ngrok-free.dev',

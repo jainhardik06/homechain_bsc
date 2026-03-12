@@ -3,7 +3,13 @@
 import { useState, useEffect } from 'react'
 import { Plus, Home, ShieldAlert } from 'lucide-react'
 import Navigation from '@/components/Navigation'
+import AdminDebug from '@/components/AdminDebug'
 import { Card, CardHeader, CardBody, CardFooter, Badge, Button, Input } from '@/components/UI'
+import { useAccount } from 'wagmi'
+import { useRoomCount } from '@/hooks/useContractRead'
+import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/lib/constants'
+import { formatESPAddress, isValidESPAddress, validateRoomConfig } from '@/lib/espUtils'
+import Web3 from 'web3'
 
 interface Room {
   id: number
@@ -11,6 +17,17 @@ interface Room {
   description: string
   isOnline: boolean
   deviceCount: number
+  espIP?: string
+  devices?: Device[]
+}
+
+interface Device {
+  id: number
+  name: string
+  pinNo: number | bigint
+  dType: number
+  value: number | bigint
+  exists: boolean
 }
 
 interface FormData {
@@ -20,31 +37,61 @@ interface FormData {
 
 export default function RoomsPage() {
   const [rooms, setRooms] = useState<Room[]>([])
+  const [loadingDevices, setLoadingDevices] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const { roomCount } = useRoomCount()
+  const { address, isConnected } = useAccount()
 
   const [formData, setFormData] = useState<FormData>({
     name: '',
     description: '',
   })
 
-  // Load rooms from API
+  // Load rooms from contract
   useEffect(() => {
     const loadRooms = async () => {
       try {
         setLoading(true)
         setError('')
 
-        // TODO: Replace with actual API endpoint
-        // const response = await fetch('/api/rooms')
-        // const data = await response.json()
-        // setRooms(data)
+        if (roomCount === 0) {
+          setRooms([])
+          setLoading(false)
+          return
+        }
 
-        // Initialize with empty state - no mock data
-        setRooms([])
+        // Load all rooms from contract
+        const web3 = new Web3((window as any).ethereum)
+        const contract = new web3.eth.Contract(CONTRACT_ABI as any, CONTRACT_ADDRESS as string)
+        const loadedRooms: Room[] = []
+
+        for (let i = 1; i <= roomCount; i++) {
+          try {
+            const room = await (contract.methods.rooms(i) as any).call()
+            const roomName = typeof room.name === 'string' ? room.name : room[0]
+            const roomIP = typeof room.espIP === 'string' ? room.espIP : room[1]
+            const deviceCount = typeof room.deviceCount === 'bigint' ? Number(room.deviceCount) : Number(room[2])
+
+            loadedRooms.push({
+              id: i,
+              name: roomName,
+              description: `Device IP: ${roomIP}`,
+              isOnline: true,
+              deviceCount: deviceCount,
+              espIP: roomIP,
+            })
+          } catch (roomErr) {
+            console.warn(`Failed to load room ${i}:`, roomErr)
+          }
+        }
+
+        setRooms(loadedRooms)
+        console.log('[Rooms] Loaded from contract:', loadedRooms)
         setLoading(false)
       } catch (err) {
         console.error('Failed to load rooms:', err)
@@ -53,8 +100,61 @@ export default function RoomsPage() {
       }
     }
 
-    loadRooms()
-  }, [])
+    if (roomCount > 0) {
+      loadRooms()
+    } else if (roomCount === 0) {
+      setRooms([])
+      setLoading(false)
+    }
+  }, [roomCount])
+
+  // Load devices for a specific room
+  const loadDevicesForRoom = async (room: Room) => {
+    if (room.deviceCount === 0 || loadingDevices.has(room.id)) return
+
+    setLoadingDevices((prev) => new Set(prev).add(room.id))
+
+    try {
+      const web3 = new Web3((window as any).ethereum)
+      const contract = new web3.eth.Contract(CONTRACT_ABI as any, CONTRACT_ADDRESS as string)
+      const devices: Device[] = []
+
+      for (let i = 1; i <= room.deviceCount; i++) {
+        try {
+          // Access the nested mapping: rooms[roomId].devices[deviceId]
+          // In web3.js, we need to call the internal mapping properly
+          const roomData = await (contract.methods.getDeviceStatus(room.id, i) as any).call()
+          
+          // getDeviceStatus returns (value) based on contract
+          devices.push({
+            id: i,
+            name: `Device ${i}`,
+            pinNo: 0,
+            dType: 0,
+            value: roomData,
+            exists: true,
+          })
+        } catch (err) {
+          console.warn(`Failed to load device ${i} of room ${room.id}:`, err)
+        }
+      }
+
+      setRooms((prev) =>
+        prev.map((r) =>
+          r.id === room.id ? { ...r, devices } : r
+        )
+      )
+      console.log(`[Rooms] Loaded ${devices.length} devices for room ${room.id}`)
+    } catch (err) {
+      console.error(`Failed to load devices for room ${room.id}:`, err)
+    } finally {
+      setLoadingDevices((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(room.id)
+        return newSet
+      })
+    }
+  }
 
   // Handle input changes
   const handleInputChange = (
@@ -64,7 +164,7 @@ export default function RoomsPage() {
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  // Handle form submission
+  // Handle form submission - CREATE ROOM ON BLOCKCHAIN
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -75,60 +175,152 @@ export default function RoomsPage() {
       return
     }
 
-    try {
-      if (editingId) {
-        // TODO: Call API to update room
-        setRooms((prev) =>
-          prev.map((r) =>
-            r.id === editingId
-              ? { ...r, name: formData.name, description: formData.description }
-              : r
-          )
-        )
-        setSuccess('Room updated successfully')
-      } else {
-        // TODO: Call API to create room
-        const newRoom: Room = {
-          id: Date.now(),
-          name: formData.name,
-          description: formData.description,
-          isOnline: true,
-          deviceCount: 0,
-        }
-        setRooms((prev) => [...prev, newRoom])
-        setSuccess('Room created successfully')
-      }
-
-      setFormData({ name: '', description: '' })
-      setShowForm(false)
-      setEditingId(null)
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (err) {
-      setError('Failed to save room')
+    if (!formData.description.trim()) {
+      setError('ESP32 IP address is required')
+      return
     }
-  }
 
-  // Handle edit
-  const handleEdit = (room: Room) => {
-    setEditingId(room.id)
-    setFormData({ name: room.name, description: room.description })
-    setShowForm(true)
-  }
+    // Validate room configuration
+    const validation = validateRoomConfig(formData.name, formData.description)
+    if (!validation.valid) {
+      setError(`❌ ${validation.errors[0] || 'Invalid configuration'}`)
+      return
+    }
 
-  // Handle delete
-  const handleDelete = async (roomId: number) => {
-    if (!confirm('Are you sure you want to delete this room? This action cannot be undone.')) {
+    // Verify wallet connection
+    if (!isConnected || !address) {
+      setError('❌ Please connect your wallet first')
+      return
+    }
+
+    // Cannot edit existing rooms - only create new ones on-chain
+    if (editingId) {
+      setError('❌ Editing rooms is not supported. Only room creation is blockchain-based.')
       return
     }
 
     try {
-      // TODO: Call API to delete room
-      setRooms((prev) => prev.filter((r) => r.id !== roomId))
-      setSuccess('Room deleted successfully')
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (err) {
-      setError('Failed to delete room')
+      setIsSubmitting(true)
+
+      // Verify MetaMask provider exists
+      if (!(window as any).ethereum) {
+        setError('❌ MetaMask not found. Please install MetaMask.')
+        return
+      }
+
+      const web3 = new Web3((window as any).ethereum)
+      const contract = new web3.eth.Contract(CONTRACT_ABI as any, CONTRACT_ADDRESS as string)
+
+      console.log('[Rooms] Creating room on-chain:', { name: formData.name, ip: formData.description, from: address })
+
+      const espIP = formData.description
+
+      // Encode function call
+      const data = (contract.methods.createRoom(formData.name, espIP) as any).encodeABI()
+      
+      // Estimate gas
+      let gasEstimate
+      try {
+        gasEstimate = await web3.eth.estimateGas({
+          from: address,
+          to: CONTRACT_ADDRESS,
+          data: data
+        })
+        console.log('[Rooms] Gas estimate:', gasEstimate.toString())
+      } catch (gasErr: any) {
+        console.error('[Rooms] Gas estimation failed:', gasErr.message)
+        setError(`❌ Gas estimation failed: ${gasErr.message}`)
+        setIsSubmitting(false)
+        return
+      }
+      
+      // Send transaction via MetaMask
+      let txHash
+      try {
+        console.log('[Rooms] Sending transaction to MetaMask...')
+        txHash = await (window as any).ethereum.request({
+          method: 'eth_sendTransaction',
+          params: [{
+            from: address,
+            to: CONTRACT_ADDRESS,
+            data: data,
+            gas: web3.utils.toHex(Math.ceil(Number(gasEstimate) * 1.2))
+          }]
+        })
+        console.log('[Rooms] MetaMask accepted transaction:', txHash)
+      } catch (txErr: any) {
+        console.error('[Rooms] MetaMask transaction error:', txErr)
+        if (txErr.code === 4001) {
+          setError('❌ Transaction rejected by user')
+        } else {
+          setError(`❌ MetaMask error: ${txErr.message}`)
+        }
+        setIsSubmitting(false)
+        return
+      }
+
+      setSuccess('⏳ Transaction sent. Waiting for confirmation...')
+
+      // Poll for receipt
+      let receipt = null
+      let confirmationWait = 0
+      while (confirmationWait < 30) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        receipt = await web3.eth.getTransactionReceipt(txHash)
+        confirmationWait++
+        
+        if (receipt) {
+          console.log('[Rooms] ✅ Room created in block:', receipt.blockNumber)
+          setSuccess(`✅ Room "${formData.name}" confirmed on-chain!`)
+          setFormData({ name: '', description: '' })
+          setShowForm(false)
+          setEditingId(null)
+          
+          // Force reload by querying contract directly
+          console.log('[Rooms] Reloading rooms from contract...')
+          const newRoomCount = await (contract.methods.roomCount() as any).call()
+          console.log('[Rooms] New roomCount from contract:', newRoomCount.toString())
+          
+          // Directly load and display all rooms
+          const newRooms: Room[] = []
+          for (let i = 1; i <= Number(newRoomCount); i++) {
+            const room = await (contract.methods.rooms(i) as any).call()
+            newRooms.push({
+              id: i,
+              name: typeof room.name === 'string' ? room.name : room[0],
+              description: '',
+              espIP: typeof room.espIP === 'string' ? room.espIP : room[1],
+              isOnline: true,
+              deviceCount: typeof room.deviceCount === 'bigint' ? Number(room.deviceCount) : Number(room[2]),
+            })
+          }
+          setRooms(newRooms)
+          console.log('[Rooms] Rooms reloaded:', newRooms)
+          break
+        }
+      }
+      
+      if (!receipt) {
+        setError('⚠️ Transaction pending... Please refresh page to check status.')
+      }
+      
+      setTimeout(() => setSuccess(''), 5000)
+    } catch (err: any) {
+      console.error('[Rooms] Unexpected error:', err)
+      setError(`❌ Error: ${err.message || 'Unknown error'}`)
+    } finally {
+      setIsSubmitting(false)
     }
+  }
+
+  // Handle edit - NOT SUPPORTED (rooms are immutable on blockchain)
+  const handleEdit = (room: Room) => {
+    setError('❌ Cannot edit rooms. They are immutable on the blockchain.')
+  }
+
+  // Handle delete - NOT SUPPORTED (rooms are immutable on blockchain)
+  const handleDelete = async (roomId: number) => {
+    setError('❌ Cannot delete rooms. They are permanently stored on the blockchain.')
   }
 
   // Cancel form
@@ -160,6 +352,7 @@ export default function RoomsPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <Navigation />
+      <AdminDebug />
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         <div className="space-y-8">
           {/* Error Alert */}
@@ -240,31 +433,38 @@ export default function RoomsPage() {
 
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    Description
+                    ESP32 IP Address
                   </label>
-                  <textarea
+                  <input
+                    type="text"
                     name="description"
                     value={formData.description}
                     onChange={handleInputChange}
-                    placeholder="Describe the purpose of this room"
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                    rows={3}
+                    placeholder="e.g. 192.168.1.100 or esp32-room.local"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
                   />
-                  <p className="text-xs text-slate-500 mt-1">Optional description</p>
+                  <p className="text-xs text-slate-500 mt-1">IPv4 address or mDNS hostname</p>
                 </div>
               </CardBody>
               <CardFooter className="flex gap-2 justify-end border-t border-slate-200 pt-4">
                 <Button
                   onClick={handleCancel}
                   className="bg-slate-200 text-slate-900 hover:bg-slate-300"
+                  disabled={isSubmitting}
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleSubmit}
-                  className="bg-blue-600 text-white hover:bg-blue-700"
+                  disabled={isSubmitting || !isConnected}
+                  className={`${
+                    isSubmitting || !isConnected
+                      ? 'bg-slate-400 text-slate-600 cursor-not-allowed'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
                 >
-                  {editingId ? 'Update Room' : 'Create Room'}
+                  {isSubmitting ? 'Creating on-chain...' : editingId ? 'Update Room' : 'Create Room'}
                 </Button>
               </CardFooter>
             </Card>
@@ -313,10 +513,13 @@ export default function RoomsPage() {
                           <h3 className="text-lg font-semibold text-slate-900 truncate">
                             {room.name}
                           </h3>
-                          {room.description && (
-                            <p className="text-sm text-slate-600 mt-1 line-clamp-2">
-                              {room.description}
-                            </p>
+                          {room.espIP && (
+                            <div className="flex items-center gap-2 mt-2">
+                              <span className="text-blue-600">🔗</span>
+                              <p className="text-sm text-blue-700 font-mono">
+                                {room.espIP}
+                              </p>
+                            </div>
                           )}
                         </div>
                         <Badge variant={room.isOnline ? 'success' : 'danger'}>
@@ -330,21 +533,49 @@ export default function RoomsPage() {
                           <span className="font-semibold text-slate-900">
                             {room.deviceCount}
                           </span>{' '}
-                          device{room.deviceCount !== 1 ? 's' : ''} connected
+                          device{room.deviceCount !== 1 ? 's' : ''} available
                         </p>
                       </div>
 
+                      {/* Devices List */}
+                      {room.devices && room.devices.length > 0 && (
+                        <div className="space-y-2 border-t border-slate-200 pt-3">
+                          <p className="text-xs font-semibold text-slate-700 uppercase">Devices</p>
+                          {room.devices.map((device) => (
+                            <div
+                              key={device.id}
+                              className="px-2 py-1 bg-slate-100 rounded text-xs text-slate-600"
+                            >
+                              Device {device.id}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
                       {/* Actions */}
                       <div className="flex gap-2 pt-2 border-t border-slate-200">
+                        {room.deviceCount > 0 && !room.devices && (
+                          <button
+                            onClick={() => loadDevicesForRoom(room)}
+                            disabled={loadingDevices.has(room.id)}
+                            className="flex-1 px-3 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium disabled:opacity-50"
+                          >
+                            {loadingDevices.has(room.id) ? 'Loading...' : 'Load Devices'}
+                          </button>
+                        )}
                         <button
                           onClick={() => handleEdit(room)}
-                          className="flex-1 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm font-medium hover:shadow-sm"
+                          disabled
+                          className="flex-1 px-3 py-2 bg-slate-50 text-slate-400 rounded-lg cursor-not-allowed text-sm font-medium opacity-50"
+                          title="Rooms are immutable on blockchain"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => handleDelete(room.id)}
-                          className="flex-1 px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium hover:shadow-sm"
+                          disabled
+                          className="flex-1 px-3 py-2 bg-slate-50 text-slate-400 rounded-lg cursor-not-allowed text-sm font-medium opacity-50"
+                          title="Rooms are immutable on blockchain"
                         >
                           Delete
                         </button>

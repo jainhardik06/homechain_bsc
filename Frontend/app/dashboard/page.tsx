@@ -4,11 +4,16 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Plus, Zap, TrendingUp, ShieldAlert, Home } from 'lucide-react'
 import Navigation from '@/components/Navigation'
+import AdminDebug from '@/components/AdminDebug'
 import { Card, CardHeader, CardBody, Badge, Button } from '@/components/UI'
+import DeviceCard from '@/components/DeviceCard'
 import { useDeviceControl } from '@/hooks/useDeviceControl'
+import { useRoomCount } from '@/hooks/useContractRead'
 import { useAccount } from 'wagmi'
 import { addHomeChainToMetaMask, switchToHomeChain } from '@/lib/metamask'
+import { CONTRACT_ABI, CONTRACT_ADDRESS } from '@/lib/constants'
 import { FRONTEND_DEVICE_TYPE_TO_CONTRACT, DEVICE_VALUE_LABELS, DEVICE_MAX_VALUES } from '@/lib/deviceConstants'
+import Web3 from 'web3'
 
 interface Device {
   id: string
@@ -45,6 +50,7 @@ export default function DashboardPage() {
 
   const { toggleDevice, deviceState } = useDeviceControl()
   const { address, isConnected } = useAccount()
+  const { roomCount = 0, isLoading: isLoadingRoomCount } = useRoomCount()
 
   // Setup MetaMask network on mount
   useEffect(() => {
@@ -55,77 +61,180 @@ export default function DashboardPage() {
     }
   }, [isConnected, address])
 
-  // Load rooms data
+  // Load rooms data from contract
   useEffect(() => {
     const loadRooms = async () => {
       try {
         setLoading(true)
         setError(null)
 
-        // TODO: Replace with actual API call
-        // const response = await fetch('/api/rooms')
-        // const data = await response.json()
-        // setRooms(data)
+        if (!roomCount || roomCount === 0) {
+          console.log('[Dashboard] No rooms yet')
+          setRooms([])
+          setStats({ activeDevices: 0, totalRooms: 0 })
+          setLoading(false)
+          return
+        }
 
-        // Initialize with empty state - no mock data
-        setRooms([])
+        // Load all rooms from contract
+        const web3 = new Web3((window as any).ethereum)
+        const contract = new web3.eth.Contract(CONTRACT_ABI as any, CONTRACT_ADDRESS as string)
+        const loadedRooms: Room[] = []
+
+        console.log('[Dashboard] ============================================')
+        console.log('[Dashboard] Starting device loading process')
+        console.log('[Dashboard] CONTRACT_ADDRESS:', CONTRACT_ADDRESS)
+        console.log('[Dashboard] Total rooms to load:', roomCount)
+        console.log('[Dashboard] ============================================')
+
+        for (let i = 1; i <= roomCount; i++) {
+          try {
+            const room = await (contract.methods.rooms(i) as any).call()
+            const roomName = typeof room.name === 'string' ? room.name : room[0]
+            const roomIP = typeof room.espIP === 'string' ? room.espIP : room[1]
+            const deviceCount = typeof room.deviceCount === 'bigint' ? Number(room.deviceCount) : Number(room[2])
+
+            console.log(`[Dashboard] Room ${i}: name="${roomName}", IP="${roomIP}", deviceCount=${deviceCount}`)
+
+
+            // Load devices for this room
+            const devices: Device[] = []
+            console.log(`[Dashboard] Loading ${deviceCount} devices for room ${i}`)
+            
+            for (let d = 1; d <= deviceCount; d++) {
+              try {
+                // === STANDARD ID FALLBACK MAPPING ===
+                // Device IDs map to specific device types (ESP32 firmware standard)
+                const standardIdMapping: { [key: number]: { type: 'fan' | 'light' | 'plug' | 'rgb'; name: string; maxValue: number } } = {
+                  1: { type: 'fan', name: 'Fan', maxValue: 3 },       // Fan with 3 speed levels
+                  2: { type: 'light', name: 'Light', maxValue: 100 }, // Dimmer/Brightness
+                  3: { type: 'plug', name: 'Plug', maxValue: 1 },     // On/Off switch
+                  4: { type: 'rgb', name: 'RGB LED', maxValue: 4 },   // RGB with 5 color modes (0-4)
+                }
+
+                let deviceName = standardIdMapping[d]?.name || `Device ${d}`
+                let displayType: 'fan' | 'light' | 'plug' | 'rgb' = standardIdMapping[d]?.type || 'plug'
+                let maxValue = standardIdMapping[d]?.maxValue || 1
+                let deviceValue = 0
+
+                console.log(`[Dashboard] 🎯 Standard ID Mapping: Device ${d} → ${displayType} (${deviceName})`)
+
+                // Try to get device info from contract
+                try {
+                  const deviceInfo = await (contract.methods.getDeviceInfo(i, d) as any).call()
+                  console.log(`[Dashboard] ✅ getDeviceInfo succeeded for device ${d}:`, deviceInfo)
+                  
+                  // Parse device name if available
+                  if (typeof deviceInfo.name === 'string' && deviceInfo.name.length > 0) {
+                    deviceName = deviceInfo.name
+                  }
+                  
+                  // Parse device type from contract if available
+                  let contractType: number | null = null
+                  if (typeof deviceInfo.dType === 'number') {
+                    contractType = deviceInfo.dType
+                  } else if (typeof deviceInfo.dType === 'bigint') {
+                    contractType = Number(deviceInfo.dType)
+                  } else if (Array.isArray(deviceInfo) && deviceInfo[2]) {
+                    contractType = typeof deviceInfo[2] === 'bigint' ? Number(deviceInfo[2]) : Number(deviceInfo[2])
+                  }
+                  
+                  // If contract has type info, use it to override the standard mapping
+                  if (contractType !== null && contractType !== undefined) {
+                    console.log(`[Dashboard] Contract type: ${contractType} (${['OnOff', 'Fan', 'Dimmer', 'RGB'][contractType] || 'Unknown'})`)
+                    if (contractType === 0) {
+                      displayType = 'plug'
+                      maxValue = 1
+                    } else if (contractType === 1) {
+                      displayType = 'fan'
+                      maxValue = 3
+                    } else if (contractType === 2) {
+                      displayType = 'light'
+                      maxValue = 100
+                    } else if (contractType === 3) {
+                      displayType = 'rgb'
+                      maxValue = 4
+                    }
+                  }
+                  
+                  // Get device value
+                  deviceValue = typeof deviceInfo.value === 'bigint' ? Number(deviceInfo.value) : 
+                               (typeof deviceInfo.value === 'number' ? deviceInfo.value : Number(deviceInfo[3] || 0))
+                } catch (getInfoErr) {
+                  console.warn(`[Dashboard] ⚠️ getDeviceInfo failed for device ${d}, using Standard ID Fallback:`, (getInfoErr as any).message)
+                  
+                  // Fallback: Get device status value only
+                  try {
+                    const statusValue = await (contract.methods.getDeviceStatus(i, d) as any).call()
+                    deviceValue = typeof statusValue === 'bigint' ? Number(statusValue) : Number(statusValue || 0)
+                    console.log(`[Dashboard] ⚙️ Fallback getDeviceStatus succeeded: value=${deviceValue}`)
+                  } catch (statusErr) {
+                    console.error(`[Dashboard] ❌ Both getDeviceInfo and getDeviceStatus failed for device ${d}:`, (statusErr as any).message)
+                    deviceValue = 0
+                  }
+                }
+
+                console.log(`[Dashboard] Device ${d}: name="${deviceName}", displayType="${displayType}", value=${deviceValue}, maxValue=${maxValue}`)
+
+                devices.push({
+                  id: `${i}-${d}`,
+                  name: deviceName,
+                  deviceId: d,
+                  type: displayType,
+                  room: roomName,
+                  roomId: i,
+                  status: deviceValue,
+                  maxValue: maxValue,
+                })
+              } catch (deviceErr) {
+                console.error(`[Dashboard] ❌ Error processing device ${d} of room ${i}:`, deviceErr)
+              }
+            }
+
+            loadedRooms.push({
+              id: String(i),
+              name: roomName,
+              devices: devices,
+              isOnline: true,
+            })
+            console.log(`[Dashboard] ✅ Loaded room ${i} "${roomName}" with ${devices.length} devices`)
+          } catch (err) {
+            console.error(`[Dashboard] ❌ Failed to load room ${i}:`, err)
+          }
+        }
+
+        setRooms(loadedRooms)
         setStats({
-          activeDevices: 0,
-          totalRooms: 0,
+          activeDevices: loadedRooms.reduce((sum, room) => sum + room.devices.length, 0),
+          totalRooms: loadedRooms.length,
         })
-
+        console.log('[Dashboard] Loaded all rooms with devices:', loadedRooms)
         setLoading(false)
       } catch (err) {
-        console.error('Failed to load rooms:', err)
+        console.error('[Dashboard] Failed to load rooms:', err)
         setError('Failed to load rooms. Please try again.')
         setLoading(false)
       }
     }
 
-    loadRooms()
-  }, [])
+    if (roomCount && roomCount > 0) {
+      loadRooms()
+    } else if (!isLoadingRoomCount && roomCount === 0) {
+      setRooms([])
+      setStats({ activeDevices: 0, totalRooms: 0 })
+      setLoading(false)
+    }
+  }, [roomCount, isLoadingRoomCount])
 
   // Handle device control
-  const handleToggleDevice = async (
-    roomId: string,
-    deviceId: string,
-    device: Device
-  ) => {
-    try {
-      if (!isConnected) {
-        setError('Please connect your wallet first')
-        return
-      }
-
-      // FIXED: Validate roomId and deviceId match device data
-      const roomNum = parseInt(roomId)
-      if (isNaN(roomNum) || roomNum !== device.roomId) {
-        setError('Invalid room ID. Device belongs to a different room.')
-        return
-      }
-
-      // FIXED: Validate device exists
-      if (!device || !device.id) {
-        setError('Device not found')
-        return
-      }
-
-      // Smart logic based on device type
-      let newValue = device.status
-      if (device.type === 'light' || device.type === 'plug') {
-        newValue = device.status === 0 ? 1 : 0
-      } else if (device.type === 'fan') {
-        newValue = device.status === 0 ? 1 : device.status < 3 ? device.status + 1 : 0
-      } else if (device.type === 'rgb') {
-        newValue = device.status === 0 ? 1 : device.status < 4 ? device.status + 1 : 0
-      }
-
-      await toggleDevice(device.roomId, device.deviceId, newValue)
-      setError(null)
-    } catch (err) {
-      console.error('Failed to control device:', err)
-      setError('Failed to control device. Please try again.')
+  const handleDeviceControl = (roomId: number, deviceId: number, value: number) => {
+    if (!isConnected) {
+      setError('❌ Please connect your wallet first')
+      return
     }
+
+    console.log(`[Dashboard] Controlling device: room=${roomId}, device=${deviceId}, value=${value}`)
+    toggleDevice(roomId, deviceId, value)
   }
 
   // Loading state
@@ -150,6 +259,7 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <Navigation />
+      <AdminDebug />
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         <div className="space-y-8">
           {/* Error Alert */}
@@ -343,201 +453,20 @@ export default function DashboardPage() {
                         </div>
                       ) : (
                         room.devices.map((device) => (
-                          <Card key={device.id} className="hover:shadow-md transition-shadow">
-                            <CardBody className="p-4 space-y-4">
-                              {/* Device Header */}
-                              <div className="flex items-start justify-between">
-                                <div className="flex items-center gap-3">
-                                  <span className="text-3xl">
-                                    {device.type === 'light'
-                                      ? '💡'
-                                      : device.type === 'fan'
-                                        ? '🌀'
-                                        : device.type === 'plug'
-                                          ? '🔌'
-                                          : '🎨'}
-                                  </span>
-                                  <div>
-                                    <h4 className="font-semibold text-slate-900">
-                                      {device.name}
-                                    </h4>
-                                    <Badge
-                                      variant={device.status > 0 ? 'success' : 'default'}
-                                    >
-                                      {device.type === 'fan'
-                                        ? device.status === 0
-                                          ? 'Off'
-                                          : device.status === 1
-                                            ? 'Low'
-                                            : device.status === 2
-                                              ? 'Med'
-                                              : 'High'
-                                        : device.status > 0
-                                          ? 'On'
-                                          : 'Off'}
-                                    </Badge>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Device Controls */}
-                              {device.type === 'fan' && (
-                                <div>
-                                  <p className="text-xs text-slate-600 mb-2 font-medium">
-                                    SPEED: {
-                                      device.status === 0
-                                        ? 'OFF'
-                                        : device.status === 1
-                                          ? 'LOW'
-                                          : device.status === 2
-                                            ? 'MED'
-                                            : 'HIGH'
-                                    }
-                                  </p>
-                                  <div className="grid grid-cols-4 gap-2">
-                                    {[0, 1, 2, 3].map((level) => (
-                                      <button
-                                        key={level}
-                                        onClick={() =>
-                                          handleToggleDevice(room.id, device.id, {
-                                            ...device,
-                                            status: level,
-                                          })
-                                        }
-                                        disabled={deviceState.isConfirming}
-                                        className={`py-2 px-1 rounded text-xs font-medium transition-colors disabled:opacity-50 ${
-                                          device.status === level
-                                            ? 'bg-blue-600 text-white'
-                                            : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                                        }`}
-                                      >
-                                        {level === 0 ? '○' : level}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {device.type === 'rgb' && (
-                                <div>
-                                  <p className="text-xs text-slate-600 mb-2 font-medium">
-                                    COLOR:{' '}
-                                    {device.status === 0
-                                      ? 'OFF'
-                                      : device.status === 1
-                                        ? 'RED'
-                                        : device.status === 2
-                                          ? 'GREEN'
-                                          : device.status === 3
-                                            ? 'BLUE'
-                                            : 'WHITE'}
-                                  </p>
-                                  <div className="grid grid-cols-5 gap-1">
-                                    <button
-                                      onClick={() =>
-                                        handleToggleDevice(room.id, device.id, {
-                                          ...device,
-                                          status: 0,
-                                        })
-                                      }
-                                      disabled={deviceState.isConfirming}
-                                      className={`py-2 rounded text-xs font-medium transition-colors disabled:opacity-50 ${
-                                        device.status === 0
-                                          ? 'bg-slate-800 text-white'
-                                          : 'bg-slate-200 hover:bg-slate-300'
-                                      }`}
-                                    >
-                                      ○
-                                    </button>
-                                    <button
-                                      onClick={() =>
-                                        handleToggleDevice(room.id, device.id, {
-                                          ...device,
-                                          status: 1,
-                                        })
-                                      }
-                                      disabled={deviceState.isConfirming}
-                                      className={`py-2 rounded text-xs font-medium transition-colors disabled:opacity-50 ${
-                                        device.status === 1
-                                          ? 'bg-red-600 text-white'
-                                          : 'bg-red-100 hover:bg-red-200'
-                                      }`}
-                                    >
-                                      R
-                                    </button>
-                                    <button
-                                      onClick={() =>
-                                        handleToggleDevice(room.id, device.id, {
-                                          ...device,
-                                          status: 2,
-                                        })
-                                      }
-                                      disabled={deviceState.isConfirming}
-                                      className={`py-2 rounded text-xs font-medium transition-colors disabled:opacity-50 ${
-                                        device.status === 2
-                                          ? 'bg-green-600 text-white'
-                                          : 'bg-green-100 hover:bg-green-200'
-                                      }`}
-                                    >
-                                      G
-                                    </button>
-                                    <button
-                                      onClick={() =>
-                                        handleToggleDevice(room.id, device.id, {
-                                          ...device,
-                                          status: 3,
-                                        })
-                                      }
-                                      disabled={deviceState.isConfirming}
-                                      className={`py-2 rounded text-xs font-medium transition-colors disabled:opacity-50 ${
-                                        device.status === 3
-                                          ? 'bg-blue-600 text-white'
-                                          : 'bg-blue-100 hover:bg-blue-200'
-                                      }`}
-                                    >
-                                      B
-                                    </button>
-                                    <button
-                                      onClick={() =>
-                                        handleToggleDevice(room.id, device.id, {
-                                          ...device,
-                                          status: 4,
-                                        })
-                                      }
-                                      disabled={deviceState.isConfirming}
-                                      className={`py-2 rounded text-xs font-medium transition-colors disabled:opacity-50 ${
-                                        device.status === 4
-                                          ? 'bg-yellow-300 text-black'
-                                          : 'bg-yellow-100 hover:bg-yellow-200'
-                                      }`}
-                                    >
-                                      W
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-
-                              {(device.type === 'light' || device.type === 'plug') && (
-                                <button
-                                  onClick={() =>
-                                    handleToggleDevice(room.id, device.id, device)
-                                  }
-                                  disabled={deviceState.isConfirming}
-                                  className={`w-full py-2 px-4 rounded-lg font-medium transition-colors disabled:opacity-50 ${
-                                    device.status > 0
-                                      ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                      : 'bg-slate-200 text-slate-900 hover:bg-slate-300'
-                                  }`}
-                                >
-                                  {deviceState.isConfirming
-                                    ? 'Updating...'
-                                    : device.status > 0
-                                      ? 'Turn Off'
-                                      : 'Turn On'}
-                                </button>
-                              )}
-                            </CardBody>
-                          </Card>
+                          <DeviceCard
+                            key={device.id}
+                            id={device.id}
+                            name={device.name}
+                            roomId={device.roomId}
+                            deviceId={device.deviceId}
+                            type={device.type === 'plug' ? 'onoff' : device.type === 'light' ? 'dimmer' : device.type}
+                            status={device.status}
+                            maxValue={device.maxValue}
+                            onControl={(roomId, deviceId, value) => {
+                              toggleDevice(roomId, deviceId, value)
+                            }}
+                            isDisabled={deviceState.isConfirming}
+                          />
                         ))
                       )}
                     </div>

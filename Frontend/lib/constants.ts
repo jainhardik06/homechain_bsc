@@ -4,11 +4,13 @@
  * 
  * IMPORTANT: Update CONTRACT_ADDRESS with your deployed contract address on Anvil
  * Deploy format: npx hardhat run scripts/deploy.js --network anvil
+ * 
+ * From go-middleware: contractAddr := common.HexToAddress("0x5FbDB2315678afecb367f032d93F642f64180aa3")
  */
 
-export const CONTRACT_ADDRESS = '0x' as `0x${string}`;
-// TODO: Replace with actual deployed contract address from Anvil
-// Example: 0x5FbDB2315678afccb333f8a9c45b65d30425ab91
+export const CONTRACT_ADDRESS = '0x5FbDB2315678afecb367f032d93F642f64180aa3' as `0x${string}`;
+// VERIFIED: This matches the address in home-middleware/main.go
+// If deploying fresh, update this value from deployment output
 
 /**
  * HomeAutomation Contract ABI
@@ -99,6 +101,22 @@ export const CONTRACT_ABI = [
       { name: '_dId', type: 'uint256', internalType: 'uint256' },
     ],
     outputs: [{ name: '', type: 'uint256', internalType: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getDeviceInfo',
+    inputs: [
+      { name: '_rId', type: 'uint256', internalType: 'uint256' },
+      { name: '_dId', type: 'uint256', internalType: 'uint256' },
+    ],
+    outputs: [
+      { name: 'name', type: 'string', internalType: 'string' },
+      { name: 'pinNo', type: 'uint256', internalType: 'uint256' },
+      { name: 'dType', type: 'uint8', internalType: 'enum AdvancedHomeAutomation.DeviceType' },
+      { name: 'value', type: 'uint256', internalType: 'uint256' },
+      { name: 'exists', type: 'bool', internalType: 'bool' },
+    ],
     stateMutability: 'view',
   },
   {

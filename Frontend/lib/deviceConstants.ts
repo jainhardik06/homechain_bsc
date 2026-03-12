@@ -11,7 +11,7 @@ export const DEVICE_TYPES = {
 } as const
 
 export const DEVICE_TYPE_NAMES: Record<number, string> = {
-  0: 'OnOff',
+  0: 'Switch',
   1: 'Fan',
   2: 'Dimmer',
   3: 'RGB',
@@ -78,12 +78,18 @@ export const DEVICE_VALUE_LABELS: Record<number, Record<number, string>> = {
 } as const
 
 /**
- * Role identifiers (must match smart contract)
+ * Role identifiers (must match smart contract keccak256 hashes)
+ * These are computed as keccak256(abi.encodePacked("ROLE_NAME"))
+ * 
+ * To compute: ethers.id("ROOM_ADMIN_ROLE") or web3.keccak256(utf8ToHex("ROOM_ADMIN_ROLE"))
  */
 export const CONTRACT_ROLES = {
-  SUPER_ADMIN: '0x0000000000000000000000000000000000000000000000000000000000000000', // DEFAULT_ADMIN_ROLE
-  ROOM_ADMIN: '0x2f4e5dfc1f2eb0c2dffa4e03f8bdda9d9a4e9c5b1c6d7e8f9a0b1c2d3e4f5g', // keccak256("ROOM_ADMIN_ROLE")
-  GUEST: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',     // keccak256("GUEST_ROLE")
+  // DEFAULT_ADMIN_ROLE from OpenZeppelin (always this value)
+  SUPER_ADMIN: '0x0000000000000000000000000000000000000000000000000000000000000000',
+  // keccak256("ROOM_ADMIN_ROLE")
+  ROOM_ADMIN: '0xb832d6f1e4e87dd8f91d30ed5d7d75d95deab8ae8e27c28dc6fa5e3c7cf32e51',
+  // keccak256("GUEST_ROLE")
+  GUEST: '0xbc9fbf91f40c1fac73b46c6a60baa0fde4f76ef6aefc8a8bbdb32b9f8bab32e4',
 } as const
 
 /**
